@@ -1,0 +1,200 @@
+name: Build UBL Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Create starter Android project
+        run: |
+          mkdir -p app/src/main/java/com/ubl/glass app/src/main/res
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "UBL-Glass-Engine"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.ubl.glass'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.ubl.glass'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '0.1'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                  android:label="UBL Glass Engine" android:allowBackup="false">
+                  <activity android:name="com.ubl.glass.MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/ubl/glass/MainActivity.java <<'EOF'
+          package com.ubl.glass;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.LinearLayout;
+          import android.widget.SeekBar;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+              int glassAlpha = 145;
+              TextView valueLabel;
+              View glassPanel;
+
+              GradientDrawable rounded(int color) {
+                  GradientDrawable d = new GradientDrawable();
+                  d.setColor(color);
+                  d.setCornerRadius(42);
+                  d.setStroke(2, Color.argb(120, 255, 255, 255));
+                  return d;
+              }
+
+              @Override public void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  getWindow().setStatusBarColor(Color.rgb(20, 25, 48));
+                  getWindow().setNavigationBarColor(Color.rgb(20, 25, 48));
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER);
+                  root.setPadding(28, 32, 28, 32);
+                  GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                      new int[]{Color.rgb(16, 24, 56), Color.rgb(26, 105, 140), Color.rgb(90, 45, 135)});
+                  root.setBackground(bg);
+
+                  TextView title = new TextView(this);
+                  title.setText("UBL  |  GLASS ENGINE");
+                  title.setTextColor(Color.WHITE);
+                  title.setTextSize(22);
+                  title.setGravity(Gravity.CENTER);
+                  title.setPadding(0, 0, 0, 28);
+                  root.addView(title);
+
+                  glassPanel = new LinearLayout(this);
+                  glassPanel.setBackground(rounded(Color.argb(glassAlpha, 235, 245, 255)));
+                  glassPanel.setElevation(14);
+                  LinearLayout panel = (LinearLayout) glassPanel;
+                  panel.setOrientation(LinearLayout.VERTICAL);
+                  panel.setGravity(Gravity.CENTER);
+                  panel.setPadding(28, 36, 28, 36);
+
+                  TextView panelTitle = new TextView(this);
+                  panelTitle.setText("Liquid Glass");
+                  panelTitle.setTextColor(Color.WHITE);
+                  panelTitle.setTextSize(30);
+                  panelTitle.setGravity(Gravity.CENTER);
+                  panel.addView(panelTitle);
+
+                  TextView description = new TextView(this);
+                  description.setText("First UBL glass preview\nTransparency • Tint • Surface");
+                  description.setTextColor(Color.WHITE);
+                  description.setTextSize(15);
+                  description.setGravity(Gravity.CENTER);
+                  description.setPadding(0, 14, 0, 18);
+                  panel.addView(description);
+
+                  LinearLayout.LayoutParams glassParams = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 280);
+                  glassParams.setMargins(0, 12, 0, 24);
+                  root.addView(glassPanel, glassParams);
+
+                  valueLabel = new TextView(this);
+                  valueLabel.setText("Glass opacity: " + glassAlpha);
+                  valueLabel.setTextColor(Color.WHITE);
+                  valueLabel.setTextSize(16);
+                  valueLabel.setGravity(Gravity.CENTER);
+                  root.addView(valueLabel);
+
+                  SeekBar opacity = new SeekBar(this);
+                  opacity.setMax(230);
+                  opacity.setProgress(glassAlpha);
+                  root.addView(opacity);
+                  opacity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                      public void onProgressChanged(SeekBar s, int value, boolean user) {
+                          glassAlpha = value;
+                          glassPanel.setBackground(rounded(Color.argb(glassAlpha, 235, 245, 255)));
+                          valueLabel.setText("Glass opacity: " + glassAlpha);
+                      }
+                      public void onStartTrackingTouch(SeekBar s) {}
+                      public void onStopTrackingTouch(SeekBar s) {}
+                  });
+
+                  TextView footer = new TextView(this);
+                  footer.setText("Prototype 0.1  •  UBL concept");
+                  footer.setTextColor(Color.argb(200, 255, 255, 255));
+                  footer.setGravity(Gravity.CENTER);
+                  footer.setPadding(0, 24, 0, 0);
+                  root.addView(footer);
+
+                  setContentView(root);
+              }
+          }
+          EOF
+
+      - name: Build debug APK
+        run: gradle assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UBL-Glass-Engine-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
