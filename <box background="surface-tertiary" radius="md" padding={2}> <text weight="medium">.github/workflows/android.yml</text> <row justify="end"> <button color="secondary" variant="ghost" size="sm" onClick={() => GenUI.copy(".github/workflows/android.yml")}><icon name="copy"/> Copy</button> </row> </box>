@@ -1,0 +1,195 @@
+name: Build UBL Glass Engine 0.2 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/ubl/glass
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "UBL-Glass-Engine"
+          include(":app")
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.7.3' apply false }
+          EOF
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.ubl.glass'
+            compileSdk 35
+            defaultConfig {
+              applicationId 'com.ubl.glass'
+              minSdk 23
+              targetSdk 35
+              versionCode 2
+              versionName '0.2'
+            }
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
+              android:label="UBL Glass Engine 0.2" android:allowBackup="false">
+              <activity android:name="com.ubl.glass.MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+          cat > app/src/main/java/com/ubl/glass/MainActivity.java <<'EOF'
+          package com.ubl.glass;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.graphics.*;
+          import android.graphics.drawable.GradientDrawable;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.*;
+          import android.animation.ValueAnimator;
+          import android.os.Build;
+
+          public class MainActivity extends Activity {
+            int opacity = 135, blur = 16, tint = 110;
+            GlassPanel glass;
+            int dp(float v) { return (int)(v * getResources().getDisplayMetrics().density + .5f); }
+
+            GradientDrawable gradient() {
+              return new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(13,25,56), Color.rgb(22,113,148), Color.rgb(83,49,137)});
+            }
+            TextView text(String s, int size) {
+              TextView t = new TextView(this);
+              t.setText(s); t.setTextColor(Color.WHITE); t.setTextSize(size); t.setGravity(Gravity.CENTER);
+              return t;
+            }
+            void addSlider(LinearLayout box, String label, int max, int value, int type) {
+              TextView tv = text(label + " : " + value, 15);
+              box.addView(tv);
+              SeekBar sb = new SeekBar(this);
+              sb.setMax(max); sb.setProgress(value);
+              box.addView(sb, new LinearLayout.LayoutParams(-1, dp(42)));
+              sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(SeekBar s, int v, boolean fromUser) {
+                  if(type==0) opacity=v; else if(type==1) blur=v; else tint=v;
+                  tv.setText(label + " : " + v);
+                  glass.setValues(opacity, blur, tint);
+                }
+                public void onStartTrackingTouch(SeekBar s) {}
+                public void onStopTrackingTouch(SeekBar s) {}
+              });
+            }
+            @Override public void onCreate(Bundle b) {
+              super.onCreate(b);
+              getWindow().setStatusBarColor(Color.rgb(13,25,50));
+              getWindow().setNavigationBarColor(Color.rgb(13,25,50));
+              FrameLayout root = new FrameLayout(this);
+              View background = new View(this);
+              background.setBackground(gradient());
+              root.addView(background, new FrameLayout.LayoutParams(-1,-1));
+              LinearLayout layout = new LinearLayout(this);
+              layout.setOrientation(LinearLayout.VERTICAL); layout.setGravity(Gravity.CENTER);
+              layout.setPadding(dp(24), dp(24), dp(24), dp(24));
+              root.addView(layout, new FrameLayout.LayoutParams(-1,-1));
+              TextView heading = text("UBL  |  GLASS ENGINE", 22);
+              heading.setPadding(0,0,0,dp(20)); layout.addView(heading);
+              glass = new GlassPanel(background);
+              LinearLayout.LayoutParams panelParams = new LinearLayout.LayoutParams(-1,dp(255));
+              panelParams.setMargins(0,dp(8),0,dp(20)); layout.addView(glass,panelParams);
+              addSlider(layout,"Opacity",230,opacity,0);
+              addSlider(layout,"Backdrop blur",40,blur,1);
+              addSlider(layout,"Tint",255,tint,2);
+              TextView foot = text("0.2 preview  •  animated glass highlight",13);
+              foot.setPadding(0,dp(18),0,0); layout.addView(foot);
+              setContentView(root);
+            }
+
+            class GlassPanel extends View {
+              View backdrop;
+              Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+              Paint tintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+              Paint edgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+              Paint shimmer = new Paint(Paint.ANTI_ALIAS_FLAG);
+              int a=135, blurRadius=16, tintValue=110;
+              float sweep=-1f;
+              ValueAnimator anim;
+              GlassPanel(View bkg) {
+                super(MainActivity.this); backdrop=bkg;
+                anim=ValueAnimator.ofFloat(-.3f,1.3f);
+                anim.setDuration(4600); anim.setRepeatCount(ValueAnimator.INFINITE);
+                anim.addUpdateListener(v->{sweep=(float)v.getAnimatedValue(); invalidate();});
+                anim.start();
+              }
+              void setValues(int alpha,int blur,int tint) { a=alpha; blurRadius=blur; tintValue=tint; invalidate(); }
+              protected void onDraw(Canvas canvas) {
+                super.onDraw(canvas);
+                float radius=dp(30);
+                RectF bounds=new RectF(0,0,getWidth(),getHeight());
+                Path path=new Path(); path.addRoundRect(bounds,radius,radius,Path.Direction.CW);
+                canvas.save(); canvas.clipPath(path);
+                // Capture the underlying background view into a panel-sized bitmap,
+                // then blur that captured backdrop on supported Android versions.
+                Bitmap snap=Bitmap.createBitmap(Math.max(1,getWidth()),Math.max(1,getHeight()),Bitmap.Config.ARGB_8888);
+                Canvas bc=new Canvas(snap);
+                bc.translate(-getLeft(),-getTop());
+                backdrop.draw(bc);
+                paint.setAlpha(255);
+                if(Build.VERSION.SDK_INT>=31 && blurRadius>0)
+                  paint.setRenderEffect(RenderEffect.createBlurEffect(blurRadius,blurRadius,Shader.TileMode.CLAMP));
+                else { paint.setRenderEffect(null); paint.setAlpha(110); }
+                canvas.drawBitmap(snap,0,0,paint);
+                paint.setRenderEffect(null); paint.setAlpha(255);
+                tintPaint.setColor(Color.argb(Math.min(150,tintValue/2),95,190,240));
+                canvas.drawRect(bounds,tintPaint);
+                tintPaint.setColor(Color.argb(Math.min(230,a),225,240,255));
+                canvas.drawRect(bounds,tintPaint);
+                float x=sweep*getWidth();
+                shimmer.setShader(new LinearGradient(x-getWidth()*.28f,0,x+getWidth()*.28f,getHeight(),
+                  new int[]{Color.TRANSPARENT,Color.argb(48,255,255,255),Color.TRANSPARENT},null,Shader.TileMode.CLAMP));
+                canvas.drawRect(bounds,shimmer); shimmer.setShader(null);
+                edgePaint.setStyle(Paint.Style.STROKE); edgePaint.setStrokeWidth(dp(1.5f));
+                edgePaint.setColor(Color.argb(155,255,255,255));
+                canvas.drawRoundRect(bounds,radius,radius,edgePaint); edgePaint.setStyle(Paint.Style.FILL);
+                canvas.restore();
+                paint.setColor(Color.WHITE); paint.setTextAlign(Paint.Align.CENTER); paint.setShader(null);
+                paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL)); paint.setRenderEffect(null);
+                paint.setTextSize(dp(30));
+                canvas.drawText("Liquid Glass",getWidth()/2f,getHeight()/2f-dp(10),paint);
+                paint.setTextSize(dp(14));
+                canvas.drawText("Backdrop • Tint • Opacity • Shimmer",getWidth()/2f,getHeight()/2f+dp(24),paint);
+                snap.recycle();
+              }
+            }
+          }
+          EOF
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UBL-Glass-Engine-0.2-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
